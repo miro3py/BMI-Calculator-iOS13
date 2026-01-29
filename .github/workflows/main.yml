@@ -1,0 +1,74 @@
+name: iOS Build (Unsigned)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build iOS app (unsigned)
+        run: |
+          xcodebuild \
+            -project "BMI Calculator.xcodeproj" \
+            -scheme "BMI Calculator" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
+
+      - name: Collect .app
+        run: |
+          mkdir -p output
+
+          BUILD_DIR=$(xcodebuild -showBuildSettings \
+            -project "BMI Calculator.xcodeproj" \
+            -scheme "BMI Calculator" \
+            -configuration Release \
+            -sdk iphoneos \
+            | grep -m 1 "BUILT_PRODUCTS_DIR" | cut -d "=" -f 2 | xargs)
+
+          echo "BUILT_PRODUCTS_DIR=$BUILD_DIR"
+
+          APP_NAME=$(ls "$BUILD_DIR" | grep '\.app$' | head -n 1)
+
+          echo "APP_NAME=$APP_NAME"
+
+          cp -R "$BUILD_DIR/$APP_NAME" output/
+
+      - name: Create unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R output/*.app Payload/
+          zip -r unsigned-ios.ipa Payload
+          rm -rf Payload
+          mv unsigned-ios.ipa output/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: output/
+
+      - name: Create Draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-build-${{ github.run_number }}
+          name: iOS Build ${{ github.run_number }}
+          draft: true
+          files: |
+            output/*.app
+            output/*.ipa
